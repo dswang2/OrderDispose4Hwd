@@ -9,6 +9,8 @@ import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -61,10 +63,13 @@ import com.gprinter.command.LabelCommand;
 import com.gprinter.io.CustomerDisplay;
 import com.gprinter.io.GpDevice;
 import com.gprinter.io.GpEquipmentPort;
+import com.gprinter.io.PortParameters;
 import com.gprinter.service.GpPrintService;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Vector;
 import java.util.concurrent.ExecutionException;
@@ -149,6 +154,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private Button bt_update_dialog;
     private FilmOrder.DataBean filmOrderDetail;
 
+    private PortParameters mPortParameters;
+    private Runnable mConnectToDevice;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -232,26 +240,154 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         Intent intent = new Intent(this, AutoUpdateService.class);
         bindService(intent, conn_update, Context.BIND_AUTO_CREATE);
 
-        //网络监控
-        /*
-        NetworkManager.getInstance().initialized(this);
-        if(!NetworkManager.getInstance().isNetworkConnected()){
-            ToastUtils.showSafeToast(this,"无网络已连接");
-        }
-        NetworkManager.getInstance().registerNetworkObserver(new NetworkObserver() {
-            @Override
-            public void onNetworkStateChanged(boolean networkConnected, NetworkInfo currentNetwork, NetworkInfo lastNetwork) {
-                if(networkConnected && currentNetwork!=null) {
-                    //网络已连接
+        //开机自动连接打印机
+        connect2print();
+    }
 
-                } else {
-                    //网络连接已断开
-                    bt_update_dialog.setText("网络连接断开");
-                    mNewOrderDialog.show();
+    private void connect2print() {
+        mPortParameters = new PortParameters();
+        mPortParameters.setPortType(PortParameters.USB);
+        mPortParameters.setIpAddr("192.168.123.100");
+        mPortParameters.setPortNumber(9100);
+
+
+        UsbManager manager = (UsbManager) getSystemService(Context.USB_SERVICE);
+        // Get the list of attached devices
+        HashMap<String, UsbDevice> devices = manager.getDeviceList();
+        Iterator<UsbDevice> deviceIterator = devices.values().iterator();
+        int count = devices.size();
+        Log.d(TAG, "count " + count);
+        if(count > 0) {
+            while (deviceIterator.hasNext()) {
+                UsbDevice device = deviceIterator.next();
+                String devicename = device.getDeviceName();
+                Log.d(TAG, "devicename " + devicename);
+                if(checkUsbDevicePidVid(device)){
+                    mPortParameters.setUsbDeviceName(devicename);
                 }
             }
-        });
-        */
+        }
+        // 一个打印机的接口信息
+        // mPortParameters
+        mConnectToDevice = new Runnable() {
+            @Override
+            public void run() {
+                Log.d(TAG, "run_UsbDeviceName " + mPortParameters.getUsbDeviceName());
+                connectOrDisConnectToDevice();
+            }
+        };
+        mHandler.postDelayed(mConnectToDevice, 2000);
+    }
+
+
+    boolean checkUsbDevicePidVid(UsbDevice dev) {
+        int pid = dev.getProductId();
+        int vid = dev.getVendorId();
+        boolean rel = false;
+        if ((vid == 34918 && pid == 256) || (vid == 1137 && pid == 85)
+                || (vid == 6790 && pid == 30084)
+                || (vid == 26728 && pid == 256) || (vid == 26728 && pid == 512)
+                || (vid == 26728 && pid == 256) || (vid == 26728 && pid == 768)
+                || (vid == 26728 && pid == 1024)|| (vid == 26728 && pid == 1280)
+                || (vid == 26728 && pid == 1536)) {
+            rel = true;
+        }
+        return rel;
+    }
+
+    /**
+     * 连接设备
+     *
+     * @param ，设备编号，设备列表 第 1 台设备
+     */
+    synchronized void connectOrDisConnectToDevice() {
+        //连接第一台打印机
+        int printerId = 0;
+        int rel = 0;
+        Log.e(TAG, String.valueOf(mPortParameters.getPortOpenState()));
+
+        if (mPortParameters.getPortOpenState() == false) {
+            //此时为断开情况，，拟连接
+            if (CheckPortParamters(mPortParameters)) {
+                try {
+                    mGpService.closePort(printerId);
+                } catch (RemoteException e) {
+                    e.printStackTrace();
+                }
+                switch (mPortParameters.getPortType()) {
+                    case PortParameters.USB:
+                        try {
+
+                            rel = mGpService.openPort(printerId, mPortParameters.getPortType(),
+                                    mPortParameters.getUsbDeviceName(), 0);
+                        } catch (RemoteException e) {
+                            // TODO Auto-generated catch block
+                            e.printStackTrace();
+                        }
+                        break;
+                    case PortParameters.ETHERNET:
+                        try {
+                            rel = mGpService.openPort(printerId, mPortParameters.getPortType(),
+                                    mPortParameters.getIpAddr(), mPortParameters.getPortNumber());
+                        } catch (RemoteException e) {
+                            // TODO Auto-generated catch block
+                            e.printStackTrace();
+                        }
+                        break;
+                    case PortParameters.BLUETOOTH:
+                        try {
+                            rel = mGpService.openPort(printerId, mPortParameters.getPortType(),
+                                    mPortParameters.getBluetoothAddr(), 0);
+                        } catch (RemoteException e) {
+                            e.printStackTrace();
+                        }
+                        break;
+                }
+                GpCom.ERROR_CODE r = GpCom.ERROR_CODE.values()[rel];
+                Log.e(TAG, "result :" + String.valueOf(r));
+                if (r != GpCom.ERROR_CODE.SUCCESS) {
+                    if (r == GpCom.ERROR_CODE.DEVICE_ALREADY_OPEN) {
+                        mPortParameters.setPortOpenState(true);
+                    } else {
+                        messageBox(GpCom.getErrorText(r));
+                    }
+                }
+            } else {
+                messageBox(getString(R.string.port_parameters_wrong));
+            }
+        } else {
+            //此时为连接情况，拟断开
+//            Log.d(TAG, "DisconnectToDevice ");
+//            try {
+//                mGpService.closePort(0);
+//            } catch (RemoteException e) {
+//                // TODO Auto-generated catch block
+//                e.printStackTrace();
+//            }
+        }
+    }
+
+    Boolean CheckPortParamters(PortParameters param) {
+        boolean rel = false;
+        int type = param.getPortType();
+        if (type == PortParameters.BLUETOOTH) {
+            if (!param.getBluetoothAddr().equals("")) {
+                rel = true;
+            }
+        } else if (type == PortParameters.ETHERNET) {
+            if ((!param.getIpAddr().equals("")) && (param.getPortNumber() != 0)) {
+                rel = true;
+            }
+        } else if (type == PortParameters.USB) {
+            if (!param.getUsbDeviceName().equals("")) {
+                rel = true;
+            }
+        }
+        return rel;
+    }
+
+    private void messageBox(String err) {
+        Toast.makeText(getApplicationContext(), err, Toast.LENGTH_SHORT).show();
     }
 
     @Override
@@ -259,7 +395,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         super.onResume();
         //访问网络，刷新订单列表
         getUnHandleOrderList();
+        mHandler.postDelayed(mConnectToDevice, 1000);
     }
+
+
 
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.toolbar, menu);
@@ -809,7 +948,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
         //移除监听器等
         mHandler.removeCallbacksAndMessages(null);
-
         unregisterReceiver(mBroadcastReceiver);
     }
 

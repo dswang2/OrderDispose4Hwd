@@ -39,6 +39,8 @@ public class AutoUpdateService extends Service {
     private Handler handler;
     private static final String TAG = "dsw_AutoUpdateService";
     private MediaPlayer mediaPlayer;
+    private AlarmManager manager;
+    private PendingIntent pi;
 
     @Override
     public void onCreate() {
@@ -102,15 +104,23 @@ public class AutoUpdateService extends Service {
         updateOrder();
 
         //AlarmManager 轮询
-        AlarmManager manager = (AlarmManager) getSystemService(ALARM_SERVICE);
+        manager = (AlarmManager) getSystemService(ALARM_SERVICE);
         int anHour = Constant.CHECK_TIME; // 轮询新订单的时间间隔
         long triggerAtTime = SystemClock.elapsedRealtime() + anHour;
         Intent i = new Intent(this, AutoUpdateService.class);
-        PendingIntent pi = PendingIntent.getService(this, 0, i, 0);
-        manager.cancel(pi);
+        pi = PendingIntent.getService(this, 0, i, 0);
+        //manager.cancel(pi);
         manager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAtTime, pi);
 
         return super.onStartCommand(intent, flags, startId);
+    }
+
+    @Override
+    public void onDestroy() {
+        if(manager!=null && pi!=null){
+            manager.cancel(pi);
+        }
+        super.onDestroy();
     }
 
     private void updateOrder() {
