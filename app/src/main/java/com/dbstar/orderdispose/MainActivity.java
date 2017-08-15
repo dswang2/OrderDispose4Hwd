@@ -72,7 +72,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Vector;
-import java.util.concurrent.ExecutionException;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -811,7 +810,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 //        esc.addSelectPrintModes();
         esc.addSetKanjiLefttandRightSpace((byte)1,(byte)1);
 //        esc.addSelectPrintModes(EscCommand.FONT.FONTA, EscCommand.ENABLE.OFF, EscCommand.ENABLE.ON, EscCommand.ENABLE.ON, EscCommand.ENABLE.OFF);// 设 置 为 倍 高 倍 宽
-        esc.addText("广州华威达酒店\n收费电视点播单账单\nPAY TV BILL");// 打 印 文 字
+        esc.addText("广州宾馆\n收费电视点播单账单\nPAY TV BILL");// 打 印 文 字
         //进纸一行
         esc.addPrintAndLineFeed();
 
